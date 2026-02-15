@@ -1,8 +1,6 @@
 <p align="center">
-  <img src="assets/noon-logo.png" alt="Noon Logo" width="80"/>
+  <img src="assets/noon-logo.png" alt="Noon Logo" width="150"/>
 </p>
-
-<h1 align="center">Noon</h1>
 
 <p align="center">
   <strong>Banking, reduced to the essentials.</strong>
