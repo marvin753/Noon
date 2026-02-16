@@ -1,0 +1,219 @@
+// Prisma schema for Noon Fintech App
+// Defines all database models, relations, and indexes for the application
+// Provider: PostgreSQL 16+
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ======================
+// Enums
+// ======================
+
+enum AccountStatus {
+  active
+  expired
+  revoked
+
+  @@map("account_status")
+}
+
+enum AccountType {
+  checking
+  savings
+
+  @@map("account_type")
+}
+
+enum BudgetPeriod {
+  monthly
+  weekly
+
+  @@map("budget_period")
+}
+
+enum SpaceMemberRole {
+  owner
+  member
+
+  @@map("space_member_role")
+}
+
+// ======================
+// Models
+// ======================
+
+model User {
+  id           String   @id @default(uuid())
+  email        String   @unique
+  passwordHash String   @map("password_hash")
+  name         String
+  createdAt    DateTime @default(now()) @map("created_at")
+  updatedAt    DateTime @updatedAt @map("updated_at")
+
+  // Relations
+  bankConnections      BankConnection[]
+  accounts             Account[]
+  spaces               Space[]
+  spaceMemberships     SpaceMember[]
+  categorizationRules  CategorizationRule[]
+  categories           Category[]
+
+  @@index([email])
+  @@map("users")
+}
+
+model BankConnection {
+  id                 String        @id @default(uuid())
+  userId             String        @map("user_id")
+  tinkCredentialsId  String        @unique @map("tink_credentials_id")
+  provider           String
+  status             AccountStatus @default(active)
+  consentExpiresAt   DateTime?     @map("consent_expires_at")
+  createdAt          DateTime      @default(now()) @map("created_at")
+  updatedAt          DateTime      @updatedAt @map("updated_at")
+
+  // Relations
+  user     User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  accounts Account[]
+
+  @@index([userId])
+  @@index([status])
+  @@index([consentExpiresAt])
+  @@map("bank_connections")
+}
+
+model Account {
+  id               String       @id @default(uuid())
+  userId           String       @map("user_id")
+  bankConnectionId String       @map("bank_connection_id")
+  tinkAccountId    String       @unique @map("tink_account_id")
+  name             String
+  iban             String?
+  balance          Decimal      @db.Decimal(15, 2)
+  currency         String       @default("EUR")
+  type             AccountType  @default(checking)
+  lastSyncedAt     DateTime?    @map("last_synced_at")
+  createdAt        DateTime     @default(now()) @map("created_at")
+  updatedAt        DateTime     @updatedAt @map("updated_at")
+
+  // Relations
+  user           User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+  bankConnection BankConnection @relation(fields: [bankConnectionId], references: [id], onDelete: Cascade)
+  transactions   Transaction[]
+
+  @@index([userId])
+  @@index([bankConnectionId])
+  @@index([lastSyncedAt])
+  @@map("accounts")
+}
+
+model Transaction {
+  id                String    @id @default(uuid())
+  accountId         String    @map("account_id")
+  tinkTransactionId String    @unique @map("tink_transaction_id")
+  amount            Decimal   @db.Decimal(15, 2)
+  currency          String    @default("EUR")
+  description       String
+  merchantName      String?   @map("merchant_name")
+  date              DateTime
+  categoryId        String?   @map("category_id")
+  spaceId           String?   @map("space_id")
+  isAutoAssigned    Boolean   @default(false) @map("is_auto_assigned")
+  createdAt         DateTime  @default(now()) @map("created_at")
+  updatedAt         DateTime  @updatedAt @map("updated_at")
+
+  // Relations
+  account  Account   @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  category Category? @relation(fields: [categoryId], references: [id], onDelete: SetNull)
+  space    Space?    @relation(fields: [spaceId], references: [id], onDelete: SetNull)
+
+  @@index([accountId])
+  @@index([categoryId])
+  @@index([spaceId])
+  @@index([date])
+  @@index([merchantName])
+  @@map("transactions")
+}
+
+model Space {
+  id           String       @id @default(uuid())
+  userId       String       @map("user_id")
+  name         String
+  budgetAmount Decimal?     @map("budget_amount") @db.Decimal(15, 2)
+  budgetPeriod BudgetPeriod @default(monthly) @map("budget_period")
+  color        String       @default("#3B82F6")
+  icon         String       @default("wallet")
+  createdAt    DateTime     @default(now()) @map("created_at")
+  updatedAt    DateTime     @updatedAt @map("updated_at")
+
+  // Relations
+  owner                User                 @relation(fields: [userId], references: [id], onDelete: Cascade)
+  members              SpaceMember[]
+  transactions         Transaction[]
+  categorizationRules  CategorizationRule[]
+
+  @@index([userId])
+  @@map("spaces")
+}
+
+model SpaceMember {
+  id       String          @id @default(uuid())
+  spaceId  String          @map("space_id")
+  userId   String          @map("user_id")
+  role     SpaceMemberRole @default(member)
+  joinedAt DateTime        @default(now()) @map("joined_at")
+
+  // Relations
+  space Space @relation(fields: [spaceId], references: [id], onDelete: Cascade)
+  user  User  @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([spaceId, userId])
+  @@index([spaceId])
+  @@index([userId])
+  @@map("space_members")
+}
+
+model CategorizationRule {
+  id            String   @id @default(uuid())
+  userId        String   @map("user_id")
+  field         String   // e.g., "merchantName", "description", "amount"
+  operator      String   // e.g., "contains", "equals", "greaterThan"
+  value         String
+  targetSpaceId String   @map("target_space_id")
+  priority      Int      @default(0)
+  isActive      Boolean  @default(true) @map("is_active")
+  createdAt     DateTime @default(now()) @map("created_at")
+  updatedAt     DateTime @updatedAt @map("updated_at")
+
+  // Relations
+  user        User  @relation(fields: [userId], references: [id], onDelete: Cascade)
+  targetSpace Space @relation(fields: [targetSpaceId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([targetSpaceId])
+  @@index([isActive, priority])
+  @@map("categorization_rules")
+}
+
+model Category {
+  id        String   @id @default(uuid())
+  userId    String?  @map("user_id")
+  name      String
+  icon      String   @default("tag")
+  color     String   @default("#6B7280")
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  // Relations
+  user         User?         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  transactions Transaction[]
+
+  @@index([userId])
+  @@map("categories")
+}
